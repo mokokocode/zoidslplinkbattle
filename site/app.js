@@ -15,6 +15,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const state = {
   roms: null,          // roms.json
+  relay: [],           // relay.json iceServers
   rom: null,           // { kind: "clean" | build id, bytes }
   built: {},           // build id -> patched ROM bytes
   save: null,          // Uint8Array(SAVE_SIZE)
@@ -166,6 +167,9 @@ async function romFor(build) {
 
 function peerOptions() {
   const o = { debug: 0 };
+  // relay.json: relay (TURN) servers for players whose networks block a direct connection. PeerJS has none of its
+  // own any more. Setting config replaces the library's defaults, so the address lookup (STUN) server is listed too.
+  if (state.relay.length) o.config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }, ...state.relay], sdpSemantics: "unified-plan" };
   if (params.get("peerhost")) {          // a self-hosted PeerServer (also used by the tests)
     o.host = params.get("peerhost");
     o.port = +(params.get("peerport") || 9000);
@@ -639,6 +643,10 @@ function setupPad() {
 
 async function main() {
   state.roms = await (await fetch("roms.json")).json();
+  try {
+    const relay = await (await fetch("relay.json")).json();
+    if (Array.isArray(relay.iceServers)) state.relay = relay.iceServers.filter((x) => x && x.urls);
+  } catch (e) { /* no relay.json: direct connections only */ }
   $("version-line").textContent = "For Zoids Legacy Plus " + state.roms.version + ". Both players need the same language.";
   for (const el of document.querySelectorAll(".ver")) el.textContent = state.roms.version;
   for (const [id, b] of Object.entries(state.roms.builds)) $("lang").append(new Option(b.label, id));
