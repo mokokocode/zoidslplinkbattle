@@ -1,0 +1,174 @@
+diff --git a/src/platform/wasm/CMakeLists.txt b/src/platform/wasm/CMakeLists.txt
+index 751e8b1..2734faf 100644
+--- a/src/platform/wasm/CMakeLists.txt
++++ b/src/platform/wasm/CMakeLists.txt
+@@ -15,7 +15,7 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} \
+ 	--flto \
+ 	-pthread \
+ 	--pre-js ${CMAKE_CURRENT_SOURCE_DIR}/pre.js")
+-add_executable(${BINARY_NAME}.js main.c memory.c ../sdl/sdl-audio.c ../sdl/sdl-events.c ../sdl/sdl-text.c)
++add_executable(${BINARY_NAME}.js main.c memory.c netlink.c ../sdl/sdl-audio.c ../sdl/sdl-events.c ../sdl/sdl-text.c)
+ set_target_properties(${BINARY_NAME}.js PROPERTIES
+ 	COMPILE_DEFINITIONS "${OS_DEFINES};${FEATURE_DEFINES};${FUNCTION_DEFINES}"
+ 	COMPILE_OPTIONS "-s;USE_SDL=2;-pthread"
+diff --git a/src/platform/wasm/main.c b/src/platform/wasm/main.c
+index 0a4ac5b..75f0543 100644
+--- a/src/platform/wasm/main.c
++++ b/src/platform/wasm/main.c
+@@ -4,6 +4,7 @@
+  * License, v. 2.0. If a copy of the MPL was not distributed with this
+  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+ #include "main.h"
++#include "netlink.h"
+ 
+ #include <mgba-util/vfs.h>
+ #include <mgba/core/core.h>
+@@ -315,8 +316,92 @@ EMSCRIPTEN_KEEPALIVE int getFastForwardMultiplier() {
+ 	return (m < 1.0) ? (int) (-1.0 / m) : (int) m;
+ }
+ 
++// network link cable: this game's link port joined to another player's emulator over the page's data channel
++static struct NetLink netLink;
++static bool netLinkActive = false;
++
++static void stopNetLink(void) {
++	if (!netLinkActive) {
++		return;
++	}
++	NetLinkClose(&netLink);
++	if (renderer->core && renderer->thread) {
++		mCoreThreadInterrupt(renderer->thread);
++		NetLinkDetach(&netLink);
++		mCoreThreadContinue(renderer->thread);
++	} else if (renderer->core) {
++		NetLinkDetach(&netLink);
++	}
++	NetLinkDeinit(&netLink);
++	netLinkActive = false;
++}
++
++// role: 0 = player 1 (starts the transfers), 1 = player 2. lag: whole 11-word packets player 1 runs behind player 2's
++// replies, from the measured round trip. Call after loadGame.
++EMSCRIPTEN_KEEPALIVE bool netLinkStart(int role, int lag) {
++	if (!renderer->core || linkSession) {
++		return false;
++	}
++	stopNetLink();
++	NetLinkInit(&netLink, role ? NETLINK_SLAVE : NETLINK_MASTER, lag);
++	if (renderer->thread) {
++		mCoreThreadInterrupt(renderer->thread);
++		NetLinkAttach(&netLink, renderer->core);
++		mCoreThreadContinue(renderer->thread);
++	} else {
++		NetLinkAttach(&netLink, renderer->core);
++	}
++	netLinkActive = true;
++	return true;
++}
++
++EMSCRIPTEN_KEEPALIVE void netLinkStop() {
++	stopNetLink();
++}
++
++// messages from the other player: whole 3-byte messages
++EMSCRIPTEN_KEEPALIVE void netLinkReceive(const uint8_t* data, int size) {
++	if (netLinkActive && size > 0) {
++		NetLinkReceive(&netLink, data, size);
++	}
++}
++
++// next message for the other player as type << 16 | word, or -1
++EMSCRIPTEN_KEEPALIVE int netLinkNext() {
++	return netLinkActive ? NetLinkNext(&netLink) : -1;
++}
++
++// 0 transfers, 1 times player 1's game had to wait for the network, 2 ms waited, 3 time-outs, 4 own port in
++// multiplayer mode, 5 other player's port in multiplayer mode
++EMSCRIPTEN_KEEPALIVE int netLinkStat(int which) {
++	if (!netLinkActive) {
++		return -1;
++	}
++	switch (which) {
++	case 0:
++		return netLink.transfers;
++	case 1:
++		return netLink.waits;
++	case 2:
++		return netLink.waitMs;
++	case 3:
++		return netLink.timeouts;
++	case 4:
++		return netLink.myMulti;
++	case 5:
++		return netLink.peerMulti;
++	}
++	return -1;
++}
++
++// frames the loaded game has run (the page uses it to time the title menu keys)
++EMSCRIPTEN_KEEPALIVE int frameCount() {
++	return renderer->core ? (int) renderer->core->frameCounter(renderer->core) : 0;
++}
++
+ EMSCRIPTEN_KEEPALIVE void quitGame() {
+ 	destroyLinkSession();
++	stopNetLink();
+ 
+ 	if (renderer->core && renderer->thread) {
+ 		emscripten_pause_main_loop();
+diff --git a/src/platform/wasm/pre.js b/src/platform/wasm/pre.js
+index 112aeef..4d6abab 100644
+--- a/src/platform/wasm/pre.js
++++ b/src/platform/wasm/pre.js
+@@ -693,3 +693,51 @@ Module.linkLocalGetStatus = () => {
+     activePlayer: running ? activePlayer : undefined,
+   };
+ };
++
++// network link cable (one game per browser, the other player's game is somewhere else)
++Module.netLinkStart = (role, lag) => {
++  const netLinkStart = cwrap("netLinkStart", "boolean", ["number", "number"]);
++  return !!netLinkStart(role, lag);
++};
++
++Module.netLinkStop = () => {
++  const netLinkStop = cwrap("netLinkStop", null, []);
++  netLinkStop();
++};
++
++let netLinkReceiveFn;
++// bytes: Uint8Array of whole 3-byte messages from the other player
++Module.netLinkReceive = (bytes) => {
++  if (!netLinkReceiveFn) netLinkReceiveFn = cwrap("netLinkReceive", null, ["array", "number"]);
++  for (let i = 0; i < bytes.length; i += 1536)
++    netLinkReceiveFn(bytes.subarray(i, i + 1536), Math.min(1536, bytes.length - i));
++};
++
++let netLinkNextFn;
++// returns a Uint8Array of the 3-byte messages waiting for the other player (empty if none)
++Module.netLinkTake = () => {
++  if (!netLinkNextFn) netLinkNextFn = cwrap("netLinkNext", "number", []);
++  const out = [];
++  for (let m = netLinkNextFn(); m >= 0 && out.length < 12288; m = netLinkNextFn())
++    out.push(m >> 16, m & 0xff, (m >> 8) & 0xff);
++  return new Uint8Array(out);
++};
++
++let netLinkStatFn;
++Module.netLinkStats = () => {
++  if (!netLinkStatFn) netLinkStatFn = cwrap("netLinkStat", "number", ["number"]);
++  return {
++    transfers: netLinkStatFn(0),
++    waits: netLinkStatFn(1),
++    waitMs: netLinkStatFn(2),
++    timeouts: netLinkStatFn(3),
++    multi: netLinkStatFn(4) === 1,
++    peerMulti: netLinkStatFn(5) === 1,
++  };
++};
++
++let frameCountFn;
++Module.frameCount = () => {
++  if (!frameCountFn) frameCountFn = cwrap("frameCount", "number", []);
++  return frameCountFn();
++};

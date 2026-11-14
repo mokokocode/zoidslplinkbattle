@@ -1,0 +1,22 @@
+{
+  "version": "V2.8",
+  "gameCode": "AZ2E",
+  "clean": {
+    "sha1": "460fa2158606097f6e6f63ce966d2d6ecdd58d70",
+    "size": 8388608
+  },
+  "builds": {
+    "en": {
+      "label": "English",
+      "sha1": "d00fb2edad8916d2dac5f730a9d55ba60874e23c",
+      "size": 16777216,
+      "patch": "patches/v2.8-en.ips"
+    },
+    "es": {
+      "label": "Español",
+      "sha1": "82d9d3859fbd51e88b4f3ddec4634c5c89a66ca8",
+      "size": 16777216,
+      "patch": "patches/v2.8-es.ips"
+    }
+  }
+}
