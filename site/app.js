@@ -492,6 +492,9 @@ async function startGame(role, lag, rt) {
   const savePath = paths.savePath + "/zlplus-" + room.build + ".sav";
   emu.FS.writeFile(romPath, await romFor(room.build));
   emu.FS.writeFile(savePath, state.save);          // a copy: your own save file is never changed
+  // No save states here. The emulator's 30 second autosave pauses the game thread from the page's thread, which
+  // freezes the link while player 1 waits for a reply, and restoring an old autosave would resume a previous battle.
+  if (emu.setCoreSettings) emu.setCoreSettings({ autoSaveStateEnable: false, restoreAutoSaveStateOnLoad: false, rewindEnable: false });
   if (!emu.loadGame(romPath, savePath)) throw new Error("The emulator could not load the ROM.");
   emu.toggleInput(false);                           // keys are handled by this page
   if (emu.setVolume) emu.setVolume(state.muted ? 0 : 1);
