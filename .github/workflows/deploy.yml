@@ -48,6 +48,7 @@ jobs:
         run: |
           js=$(find mgba/build-wasm -name mgba.js -not -path '*/install/*' | head -n 1)
           test -n "$js"
+          mkdir -p site/emu
           cp "$js" "$(dirname "$js")/mgba.wasm" site/emu/
           grep -q netLinkStart site/emu/mgba.js
 
