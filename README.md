@@ -28,6 +28,36 @@ Not tested yet:
 3. The "Build and deploy" workflow runs on every push. It builds the emulator and publishes `site/`.
    The first build takes several minutes. The address is shown on the workflow run and in Settings > Pages.
 
+## Relay server (for players who cannot connect directly)
+
+Two browsers connect directly when their networks allow it. Many mobile and some home or office networks do not, and
+then a relay (TURN) server has to pass the data along. PeerJS no longer provides one, so without this step those
+players cannot see or join rooms.
+
+1. Sign up with a relay provider. ExpressTURN, Metered and Cloudflare have free allowances.
+2. Put the provider's servers and your credentials in `site/relay.json`, for example:
+
+   ```json
+   {
+     "iceServers": [
+       {
+         "urls": [
+           "turn:relay1.expressturn.com:3478?transport=udp",
+           "turn:relay1.expressturn.com:3478?transport=tcp",
+           "turns:relay1.expressturn.com:443?transport=tcp"
+         ],
+         "username": "YOUR_USERNAME",
+         "credential": "YOUR_PASSWORD"
+       }
+     ]
+   }
+   ```
+
+3. Commit and push. With an empty list the site uses direct connections only.
+
+The credentials in this file are public, like everything on a static site. Someone could use up your allowance with
+them. Link battle data is small, so normal play uses very little.
+
 ## When the Plus files change
 
 Both players must run exactly the same Plus build, so the page only accepts the files listed in `site/roms.json`.
