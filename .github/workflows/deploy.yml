@@ -1,0 +1,67 @@
+# Builds the emulator (mGBA for the web, plus the network link in emulator/) and publishes site/ to GitHub Pages.
+name: Build and deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  MGBA_REPO: https://github.com/thenick775/mgba.git
+  MGBA_COMMIT: 7d4c17f4cc1aaf0858635f5ffcf5c1f269ce0474
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get the emulator source
+        run: |
+          git init mgba
+          cd mgba
+          git remote add origin "$MGBA_REPO"
+          git fetch --depth 1 origin "$MGBA_COMMIT"
+          git checkout FETCH_HEAD
+
+      - name: Add the network link
+        run: |
+          cp emulator/netlink.c emulator/netlink.h mgba/src/platform/wasm/
+          git -C mgba apply ../emulator/mgba-wasm.patch
+
+      - name: Build the emulator
+        run: |
+          docker build -t zl-mgba-wasm mgba/src/platform/wasm/docker
+          chmod -R a+rwX mgba
+          docker run --rm -v "$PWD/mgba:/home/mgba/src" zl-mgba-wasm
+
+      - name: Put the emulator in the site
+        run: |
+          js=$(find mgba/build-wasm -name mgba.js -not -path '*/install/*' | head -n 1)
+          test -n "$js"
+          cp "$js" "$(dirname "$js")/mgba.wasm" site/emu/
+          grep -q netLinkStart site/emu/mgba.js
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
