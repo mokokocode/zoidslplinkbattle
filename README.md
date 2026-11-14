@@ -67,4 +67,5 @@ the included service worker (which is what GitHub Pages uses).
 
 - mGBA and the files in `emulator/` are under the Mozilla Public License 2.0.
 - `site/vendor/peerjs.min.js` (PeerJS) and `site/coi-serviceworker.js` are MIT licensed. Their licences are in `site/vendor/`.
+- The font in `site/vendor/fonts/` is VT323, under the SIL Open Font License 1.1. Its licence is in the same folder.
 - No ROM is included. The patches contain only the differences from a clean ROM.
