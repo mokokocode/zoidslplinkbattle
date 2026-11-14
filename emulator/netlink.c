@@ -142,7 +142,8 @@ static void _poll(struct mTiming* timing, void* context, uint32_t cyclesLate) {
 		sio->rcnt = ready ? GBASIORegisterRCNTFillSd(sio->rcnt) : GBASIORegisterRCNTClearSd(sio->rcnt);
 	}
 	if (link->role == NETLINK_SLAVE && link->inHead != link->inTail) {
-		int64_t now = mTimingGlobalTime(timing);
+		/* masterCycles time: this build of mGBA does not advance mTimingGlobalTime. Wraps, so compare unsigned. */
+		uint32_t now = (uint32_t) mTimingCurrentTime(timing);
 		if (now - link->lastTransfer >= SLAVE_GAP) {
 			uint16_t word = link->in[link->inHead++ & (NETLINK_RING - 1)];
 			uint16_t mine = 0xFFFF;
