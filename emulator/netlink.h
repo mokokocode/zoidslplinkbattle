@@ -47,7 +47,7 @@ struct NetLink {
 	/* slave */
 	uint16_t in[NETLINK_RING];
 	unsigned inHead, inTail;
-	int64_t lastTransfer;
+	uint32_t lastTransfer;
 
 	/* master */
 	uint16_t reply[NETLINK_PACKETS][NETLINK_PACKET_MAX];
